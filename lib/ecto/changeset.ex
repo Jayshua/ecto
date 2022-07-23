@@ -2637,6 +2637,70 @@ defmodule Ecto.Changeset do
   end
 
   @doc """
+  Checks for a user-created raise in the given field.
+
+  The raise constraint works by relying on the database to perform some operation,
+  usually as part of a before/after insert/update operation, and raising with the
+  given message if there is a problem. If an exception is raised with the expected
+  message, Ecto converts it into a changeset error.
+
+  In order to use the raise constraint, the first step is to write a trigger which
+  raises an exception. In plpgsql, that would look like this:
+
+      create function validate_seat_count() returns trigger as $$
+      declare
+        users integer;
+      begin
+        select count(*) into users from users where users.company_id = NEW.company_id;
+
+        if users > NEW.seat_count then
+          raise exception 'seat_count_too_high';
+        else
+          return NEW;
+        end if;
+      end
+      $$ language plpgsql;
+
+      create trigger
+        validate_seat_count
+      after update on
+        account
+      for each transaction
+      execute procedure validate_seat_count();
+
+  Now that a trigger exists which will raise an exception, when modifying a company we could
+  annotate the changeset with a raise constraint so Ecto knows how to convert the exception
+  into an eror message:
+
+      cast(company, params, [:seat_count])
+      |> raise_constraint(:seat_count, name: "seat_count_too_high")
+
+  Now, when invoking `c:Ecto.Repo.insert/2` or `c:Ecto.Repo.update/2`, if the seat count
+  will be less than the current number of users, the exception will be converted into an
+  error and `{:error, changeset}` returned by the repository. Note that the error will
+  occur only after hitting the database so it will not be visible until all other
+  validations pass.
+
+  ## Options
+
+    * `:message` - the message in case the exception is raised. Defaults to "is invalid"
+    * `:name` - the text of the raised exception. Required.
+    * `:match` - how the changeset constraint name is matched against the exception
+      message. May be `:exact`, `:suffix` or `:prefix`. Defaults to `:exact`.
+      `:suffix` matches any repo exception which `ends_with?` `:name`
+      to this changeset constraint.
+      `:prefix` matches any repo exception which `starts_with?` `:name`
+      to this changeset constraint.
+
+  """
+  def raise_constraint(changeset, field, opts \\ []) do
+    constraint = opts[:message] || raise ArgumentError, "must supply the message of the raise"
+    message    = message(opts, "is invalid")
+    match_type = Keyword.get(opts, :match, :prefix)
+    add_constraint(changeset, :raise, to_string(constraint), match_type, field, message)
+  end
+
+  @doc """
   Checks for a unique constraint in the given field or list of fields.
 
   The unique constraint works by relying on the database to check
