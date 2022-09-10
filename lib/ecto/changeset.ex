@@ -2694,7 +2694,7 @@ defmodule Ecto.Changeset do
 
   """
   def raise_constraint(changeset, field, opts \\ []) do
-    constraint = opts[:message] || raise ArgumentError, "must supply the message of the raise"
+    constraint = opts[:name] || raise ArgumentError, "must supply the name of the raise"
     message    = message(opts, "is invalid")
     match_type = Keyword.get(opts, :match, :prefix)
     add_constraint(changeset, :raise, to_string(constraint), match_type, field, message)
